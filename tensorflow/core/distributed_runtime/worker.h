@@ -13,19 +13,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_WORKER_H_
-#define THIRD_PARTY_TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_WORKER_H_
+#ifndef TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_WORKER_H_
+#define TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_WORKER_H_
 
 #include <unordered_map>
 
 #include "tensorflow/core/distributed_runtime/graph_mgr.h"
+#include "tensorflow/core/distributed_runtime/partial_run_mgr.h"
+#include "tensorflow/core/distributed_runtime/session_mgr.h"
 #include "tensorflow/core/distributed_runtime/worker_interface.h"
 
 namespace tensorflow {
 
 class CancellationManager;
 class Device;
-class WorkerEnv;
+struct WorkerEnv;
+struct WorkerSession;
 
 // A TensorFlow Worker runs registered graphs and supports worker-to-worker
 // Tensor transfer.
@@ -45,6 +48,15 @@ class Worker : public WorkerInterface {
                       GetStatusResponse* response,
                       StatusCallback done) override;
 
+  void CreateWorkerSessionAsync(const CreateWorkerSessionRequest* request,
+                                CreateWorkerSessionResponse* response,
+                                StatusCallback done) override;
+
+  void DeleteWorkerSessionAsync(CallOptions* opts,
+                                const DeleteWorkerSessionRequest* request,
+                                DeleteWorkerSessionResponse* response,
+                                StatusCallback done) override;
+
   void RegisterGraphAsync(const RegisterGraphRequest* request,
                           RegisterGraphResponse* response,
                           StatusCallback done) override;
@@ -53,8 +65,13 @@ class Worker : public WorkerInterface {
                             DeregisterGraphResponse* response,
                             StatusCallback done) override;
 
-  void RunGraphAsync(CallOptions* opts, const RunGraphRequest* request,
-                     RunGraphResponse* response, StatusCallback done) override;
+  void RunGraphAsync(CallOptions* opts, RunGraphRequestWrapper* request,
+                     MutableRunGraphResponseWrapper* response,
+                     StatusCallback done) override;
+
+  MutableRunGraphRequestWrapper* CreateRunGraphRequest() override;
+
+  MutableRunGraphResponseWrapper* CreateRunGraphResponse() override;
 
   void CleanupGraphAsync(const CleanupGraphRequest* request,
                          CleanupGraphResponse* response,
@@ -73,6 +90,23 @@ class Worker : public WorkerInterface {
   void TracingAsync(const TracingRequest* request, TracingResponse* response,
                     StatusCallback done) override;
 
+  void RecvBufAsync(CallOptions* opts, const RecvBufRequest* request,
+                    RecvBufResponse* response, StatusCallback done) override;
+
+  void CompleteGroupAsync(CallOptions* opts,
+                          const CompleteGroupRequest* request,
+                          CompleteGroupResponse* response,
+                          StatusCallback done) override;
+
+  void CompleteInstanceAsync(CallOptions* opts,
+                             const CompleteInstanceRequest* request,
+                             CompleteInstanceResponse* response,
+                             StatusCallback done) override;
+
+  void GetStepSequenceAsync(const GetStepSequenceRequest* request,
+                            GetStepSequenceResponse* response,
+                            StatusCallback done) override;
+
  protected:
   WorkerEnv* const env_;  // Not owned.
 
@@ -82,46 +116,25 @@ class Worker : public WorkerInterface {
   void AbortStep(int64);
 
  private:
-  mutex mu_;
-  CancellationManager* cancellation_manager_ GUARDED_BY(mu_);
+  PartialRunMgr partial_run_mgr_;
 
-  struct PartialRunState {
-    CancellationManager* cancellation_manager;
-    Notification executor_done;
+  CancellationManager cancellation_manager_;
 
-    explicit PartialRunState(CancellationManager* cm)
-        : cancellation_manager(cm) {}
-  };
-  struct PairHash {
-    std::size_t operator()(std::pair<string, int> const& p) const {
-      return Hash64Combine(std::hash<string>()(p.first),
-                           std::hash<int>()(p.second));
-    }
-  };
-  std::unordered_map<std::pair<string, int>, std::unique_ptr<PartialRunState>,
-                     PairHash>
-      partial_runs_ GUARDED_BY(mu_);
-
-  PartialRunState* FindPartialRun(const string& graph_handle, int step_id);
-
-  void InsertPartialRunLocked(const string& graph_handle, int step_id,
-                              PartialRunState* partial_run_state)
-      EXCLUSIVE_LOCKS_REQUIRED(mu_);
-
-  void RemovePartialRun(const string& graph_handle, int step_id);
-
-  Status PrepareRunGraph(const RunGraphRequest& req, GraphMgr::NamedTensors* in,
+  Status PrepareRunGraph(RunGraphRequestWrapper* req,
+                         GraphMgr::NamedTensors* in,
                          GraphMgr::NamedTensors* out);
 
-  void DoRunGraph(CallOptions* opts, const RunGraphRequest* request,
-                  RunGraphResponse* response, StatusCallback done);
+  void DoRunGraph(CallOptions* opts, RunGraphRequestWrapper* request,
+                  MutableRunGraphResponseWrapper* response,
+                  StatusCallback done);
 
-  void DoPartialRunGraph(CallOptions* opts, const RunGraphRequest* request,
-                         RunGraphResponse* response, StatusCallback done);
+  void DoPartialRunGraph(CallOptions* opts, RunGraphRequestWrapper* request,
+                         MutableRunGraphResponseWrapper* response,
+                         StatusCallback done);
 
   TF_DISALLOW_COPY_AND_ASSIGN(Worker);
 };
 
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_WORKER_H_
+#endif  // TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_WORKER_H_

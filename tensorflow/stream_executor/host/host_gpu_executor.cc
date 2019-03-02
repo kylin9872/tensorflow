@@ -19,16 +19,14 @@ limitations under the License.
 
 #include <string.h>
 
+#include "tensorflow/core/platform/profile_utils/cpu_utils.h"
 #include "tensorflow/stream_executor/host/host_platform_id.h"
 #include "tensorflow/stream_executor/host/host_stream.h"
 #include "tensorflow/stream_executor/host/host_timer.h"
 #include "tensorflow/stream_executor/lib/statusor.h"
 #include "tensorflow/stream_executor/plugin_registry.h"
 
-namespace gpu = ::perftools::gputools;
-
-namespace perftools {
-namespace gputools {
+namespace stream_executor {
 namespace host {
 
 HostStream *AsHostStream(Stream *stream) {
@@ -95,7 +93,7 @@ bool HostExecutor::MemcpyDeviceToDevice(Stream *stream,
   // the nature of the HostExecutor) memcpy  on the stream (HostStream)
   // associated with the HostExecutor.
   AsHostStream(stream)->EnqueueTask(
-      [src_mem, dst_mem, size]() { memcpy(src_mem, dst_mem, size); });
+      [src_mem, dst_mem, size]() { memcpy(dst_mem, src_mem, size); });
   return true;
 }
 
@@ -129,28 +127,34 @@ bool HostExecutor::Memset32(Stream *stream, DeviceMemoryBase *location,
   return true;
 }
 
-bool HostExecutor::SynchronousMemcpy(DeviceMemoryBase *gpu_dst,
-                                     const void *host_src, uint64 size) {
+port::Status HostExecutor::SynchronousMemcpy(DeviceMemoryBase *gpu_dst,
+                                             const void *host_src,
+                                             uint64 size) {
   memcpy(gpu_dst->opaque(), host_src, size);
-  return true;
+  return port::Status::OK();
 }
 
-bool HostExecutor::SynchronousMemcpy(void *host_dst,
-                                     const DeviceMemoryBase &gpu_src,
-                                     uint64 size) {
+port::Status HostExecutor::SynchronousMemcpy(void *host_dst,
+                                             const DeviceMemoryBase &gpu_src,
+                                             uint64 size) {
   memcpy(host_dst, gpu_src.opaque(), size);
-  return true;
+  return port::Status::OK();
 }
 
-bool HostExecutor::SynchronousMemcpyDeviceToDevice(
+port::Status HostExecutor::SynchronousMemcpyDeviceToDevice(
     DeviceMemoryBase *gpu_dst, const DeviceMemoryBase &gpu_src, uint64 size) {
   memcpy(gpu_dst->opaque(), gpu_src.opaque(), size);
-  return true;
+  return port::Status::OK();
 }
 
 bool HostExecutor::HostCallback(Stream *stream,
-                                std::function<void()> callback) {
-  AsHostStream(stream)->EnqueueTask(callback);
+                                std::function<port::Status()> callback) {
+  AsHostStream(stream)->EnqueueTask([callback]() {
+    port::Status s = callback();
+    if (!s.ok()) {
+      LOG(WARNING) << "Host callback failed: " << s;
+    }
+  });
   return true;
 }
 
@@ -160,7 +164,7 @@ void HostExecutor::DeallocateStream(Stream *stream) {}
 
 bool HostExecutor::CreateStreamDependency(Stream *dependent, Stream *other) {
   AsHostStream(dependent)->EnqueueTask(
-      [other]() { other->BlockHostUntilDone(); });
+      [other]() { SE_CHECK_OK(other->BlockHostUntilDone()); });
   AsHostStream(dependent)->BlockUntilDone();
   return true;
 }
@@ -175,9 +179,9 @@ bool HostExecutor::StopTimer(Stream *stream, Timer *timer) {
   return true;
 }
 
-bool HostExecutor::BlockHostUntilDone(Stream *stream) {
+port::Status HostExecutor::BlockHostUntilDone(Stream *stream) {
   AsHostStream(stream)->BlockUntilDone();
-  return true;
+  return port::Status::OK();
 }
 
 DeviceDescription *HostExecutor::PopulateDeviceDescription() const {
@@ -189,7 +193,9 @@ DeviceDescription *HostExecutor::PopulateDeviceDescription() const {
   // doesn't result in thrashing or other badness? 4GiB chosen arbitrarily.
   builder.set_device_memory_size(static_cast<uint64>(4) * 1024 * 1024 * 1024);
 
-  builder.set_clock_rate_ghz(static_cast<float>(CLOCKS_PER_SEC) / 1e9);
+  float cycle_counter_frequency = static_cast<float>(
+      tensorflow::profile_utils::CpuUtils::GetCycleCounterFrequency());
+  builder.set_clock_rate_ghz(cycle_counter_frequency / 1e9);
 
   auto built = builder.Build();
   return built.release();
@@ -259,5 +265,4 @@ rng::RngSupport *HostExecutor::CreateRng() {
 }
 
 }  // namespace host
-}  // namespace gputools
-}  // namespace perftools
+}  // namespace stream_executor

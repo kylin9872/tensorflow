@@ -7,8 +7,19 @@ licenses(["notice"])  # Apache 2.0
 
 exports_files(["LICENSE"])
 
-py_library(
+load("//tensorflow:tensorflow.bzl", "py_test")
+load("//tensorflow:tensorflow.bzl", "py_binary")
+
+py_binary(
     name = "grpc_tensorflow_server",
+    srcs = ["grpc_tensorflow_server.py"],
+    srcs_version = "PY2AND3",
+    visibility = ["//visibility:public"],
+    deps = [":grpc_tensorflow_server_lib"],
+)
+
+py_library(
+    name = "grpc_tensorflow_server_lib",
     srcs = [
         "grpc_tensorflow_server.py",
     ],
@@ -30,20 +41,8 @@ py_test(
     main = "parse_cluster_spec_test.py",
     srcs_version = "PY2AND3",
     deps = [
-        ":grpc_tensorflow_server",
+        ":grpc_tensorflow_server_lib",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python:client_testlib",
     ],
-)
-
-filegroup(
-    name = "all_files",
-    srcs = glob(
-        ["**/*"],
-        exclude = [
-            "**/METADATA",
-            "**/OWNERS",
-        ],
-    ),
-    visibility = ["//tensorflow:__subpackages__"],
 )

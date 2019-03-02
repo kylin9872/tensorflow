@@ -19,8 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import contextlib
-
 import six
 
 from tensorflow.core.framework import attr_value_pb2
@@ -33,6 +31,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
+from tensorflow.python.util import tf_contextlib
 
 
 def _Attr(op_def, name):
@@ -196,7 +195,12 @@ def _MakeShape(v, arg_name):
                         str(v))
         break
     return v
-  return tensor_shape.as_shape(v).as_proto()
+  try:
+    return tensor_shape.as_shape(v).as_proto()
+  except TypeError as e:
+    raise TypeError("Error converting %s to a TensorShape: %s" % (arg_name, e))
+  except ValueError as e:
+    raise ValueError("Error converting %s to a TensorShape: %s" % (arg_name, e))
 
 
 def _MakeTensor(v, arg_name):
@@ -206,6 +210,22 @@ def _MakeTensor(v, arg_name):
   raise TypeError(
       "Don't know how to convert %s to a TensorProto for argument '%s'" %
       (repr(v), arg_name))
+
+
+def _MakeFunc(v, arg_name):
+  """Ensure v is a func."""
+  if isinstance(v, attr_value_pb2.NameAttrList):
+    return v
+  fn_attr = attr_value_pb2.NameAttrList()
+  if isinstance(v, compat.bytes_or_text_types):
+    fn_attr.name = v
+  elif hasattr(v, "add_to_graph"):
+    v.add_to_graph(ops.get_default_graph())
+    fn_attr.name = v.name
+  else:
+    raise TypeError("Don't know how to convert {} to a func for "
+                    "argument {}".format(v, arg_name))
+  return fn_attr
 
 
 class _OpInfo(object):
@@ -241,7 +261,7 @@ class _OpInfo(object):
 
 
 # pylint: disable=g-doc-return-or-yield
-@contextlib.contextmanager
+@tf_contextlib.contextmanager
 def _MaybeColocateWith(inputs):
   """A context manager for (maybe) colocating with a list of input tensors.
 
@@ -267,6 +287,7 @@ class OpDefLibrary(object):
   def __init__(self):
     self._ops = {}
 
+  # pylint: disable=invalid-name
   def add_op(self, op_def):
     """Register an OpDef. May call apply_op with the name afterwards."""
     if not isinstance(op_def, op_def_pb2.OpDef):
@@ -319,6 +340,20 @@ class OpDefLibrary(object):
       TypeError: On some errors.
       ValueError: On some errors.
     """
+    output_structure, is_stateful, op = self._apply_op_helper(
+        op_type_name, name, **keywords)
+    if output_structure:
+      outputs = op.outputs
+      res = _Restructure(ops.convert_n_to_tensor(outputs), output_structure)
+      if isinstance(res, list) and not res and is_stateful:
+        return op
+      else:
+        return res
+    else:
+      return op
+
+  def _apply_op_helper(self, op_type_name, name=None, **keywords):
+    """Implementation of apply_op that returns output_structure, op."""
     op_info = self._ops.get(op_type_name, None)
     if op_info is None:
       raise RuntimeError("Unrecognized Op name " + op_type_name)
@@ -329,7 +364,7 @@ class OpDefLibrary(object):
       # Need to flatten all the arguments into a list.
       # pylint: disable=protected-access
       g = ops._get_graph_from_inputs(_Flatten(keywords.values()))
-      # pyline: enable=protected-access
+      # pylint: enable=protected-access
     except AssertionError as e:
       raise RuntimeError(
           "Cannot determine graph for Op '%s' due to: %s"
@@ -463,7 +498,8 @@ class OpDefLibrary(object):
               else:
                 raise TypeError("%s that don't all match." % prefix)
             else:
-              raise TypeError("%s that are invalid." % prefix)
+              raise TypeError(
+                  "%s that are invalid. Tensors: %s" % (prefix, values))
 
           types = [x.dtype for x in values]
           inputs.extend(values)
@@ -495,13 +531,18 @@ class OpDefLibrary(object):
             else:
               raise TypeError(
                   "Expected %s passed to parameter '%s' of op '%s', got %s of "
-                  "type '%s' instead." %
+                  "type '%s' instead. Error: %s" %
                   (dtypes.as_dtype(dtype).name, input_arg.name, op_type_name,
-                   repr(values), type(values).__name__))
+                   repr(values), type(values).__name__, err))
           except ValueError:
             # What type does convert_to_tensor think it has?
-            observed = ops.internal_convert_to_tensor(
-                values, as_ref=input_arg.is_ref).dtype.name
+            try:
+              observed = ops.internal_convert_to_tensor(
+                  values, as_ref=input_arg.is_ref).dtype.name
+            except ValueError as err:
+              raise ValueError(
+                  "Tried to convert '%s' to a tensor and failed. Error: %s" %
+                  (input_name, err))
             prefix = ("Input '%s' of '%s' Op has type %s that does not match" %
                       (input_name, op_type_name, observed))
             if input_arg.type != types_pb2.DT_INVALID:
@@ -545,7 +586,7 @@ class OpDefLibrary(object):
                   "than minimum length %d." %
                   (input_name, op_type_name, len(values), num_attr.minimum))
           # All tensors must have the same base type.
-          if any([bt != base_types[0] for bt in base_types]):
+          if any(bt != base_types[0] for bt in base_types):
             raise TypeError(
                 "All tensors passed to '%s' of '%s' Op "
                 "must have the same type." %
@@ -613,8 +654,8 @@ class OpDefLibrary(object):
         if input_arg.is_ref:
           if not all(x._is_ref_dtype for x in types):  # pylint: disable=protected-access
             raise TypeError(
-                "Input '%s' of '%s' Op requires l-value input" %
-                (input_name, op_type_name))
+                ("'%s' Op requires that input '%s' be a mutable tensor "
+                 "(e.g.: a tf.Variable)") % (op_type_name, input_name))
           input_types.extend(types)
         else:
           input_types.extend(base_types)
@@ -708,13 +749,9 @@ class OpDefLibrary(object):
           attr_value.list.tensor.extend(
               [_MakeTensor(x, key) for x in value])
         elif attr_def.type == "func":
-          if isinstance(value, attr_value_pb2.NameAttrList):
-            attr_value.func.CopyFrom(value)
-          elif isinstance(value, compat.bytes_or_text_types):
-            attr_value.func.name = value
-          else:
-            value.add_to_graph(ops.get_default_graph())
-            attr_value.func.name = value.name
+          attr_value.func.CopyFrom(_MakeFunc(value, key))
+        elif attr_def.type == "list(func)":
+          attr_value.list.func.extend([_MakeFunc(x, key) for x in value])
         else:
           raise TypeError("Unrecognized Attr type " + attr_def.type)
 
@@ -761,12 +798,6 @@ class OpDefLibrary(object):
         op = g.create_op(op_type_name, inputs, output_types, name=scope,
                          input_types=input_types, attrs=attr_protos,
                          op_def=op_def)
-        if output_structure:
-          outputs = op.outputs
-          res = _Restructure(ops.convert_n_to_tensor(outputs), output_structure)
-          if isinstance(res, list) and not res and op_def.is_stateful:
-            return op
-          else:
-            return res
-        else:
-          return op
+      return output_structure, op_def.is_stateful, op
+
+# pylint: enable=invalid-name

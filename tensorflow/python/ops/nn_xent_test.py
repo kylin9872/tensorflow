@@ -24,6 +24,7 @@ import numpy as np
 
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
+from tensorflow.python.framework import test_util
 from tensorflow.python.ops import gradient_checker
 from tensorflow.python.ops import gradients_impl
 from tensorflow.python.ops import nn_impl
@@ -53,53 +54,61 @@ class SigmoidCrossEntropyWithLogitsTest(test.TestCase):
     losses = np.array(self._SigmoidCrossEntropyWithLogits(x, y)).reshape(*sizes)
     return logits, targets, losses
 
+  @test_util.run_deprecated_v1
   def testConstructionNamed(self):
-    with self.test_session():
+    with self.cached_session():
       logits, targets, _ = self._Inputs()
       loss = nn_impl.sigmoid_cross_entropy_with_logits(
-          logits, targets, name="mylogistic")
+          labels=targets, logits=logits, name="mylogistic")
     self.assertEqual("mylogistic", loss.op.name)
 
   def testLogisticOutput(self):
     for use_gpu in [True, False]:
       for dtype in [dtypes.float32, dtypes.float16]:
-        with self.test_session(use_gpu=use_gpu):
+        with self.cached_session(use_gpu=use_gpu):
           logits, targets, losses = self._Inputs(dtype=dtype)
-          loss = nn_impl.sigmoid_cross_entropy_with_logits(logits, targets)
+          loss = nn_impl.sigmoid_cross_entropy_with_logits(
+              labels=targets, logits=logits)
           np_loss = np.array(losses).astype(np.float32)
-          tf_loss = loss.eval()
+          tf_loss = self.evaluate(loss)
         self.assertAllClose(np_loss, tf_loss, atol=0.001)
 
   def testLogisticOutputMultiDim(self):
     for use_gpu in [True, False]:
       for dtype in [dtypes.float32, dtypes.float16]:
-        with self.test_session(use_gpu=use_gpu):
+        with self.cached_session(use_gpu=use_gpu):
           logits, targets, losses = self._Inputs(dtype=dtype, sizes=[2, 2, 2])
-          loss = nn_impl.sigmoid_cross_entropy_with_logits(logits, targets)
+          loss = nn_impl.sigmoid_cross_entropy_with_logits(
+              labels=targets, logits=logits)
           np_loss = np.array(losses).astype(np.float32)
-          tf_loss = loss.eval()
+          tf_loss = self.evaluate(loss)
         self.assertAllClose(np_loss, tf_loss, atol=0.001)
 
+  @test_util.run_deprecated_v1
   def testGradient(self):
     sizes = [4, 2]
-    with self.test_session():
+    with self.cached_session():
       logits, targets, _ = self._Inputs(sizes=sizes)
-      loss = nn_impl.sigmoid_cross_entropy_with_logits(logits, targets)
+      loss = nn_impl.sigmoid_cross_entropy_with_logits(
+          labels=targets, logits=logits)
       err = gradient_checker.compute_gradient_error(logits, sizes, loss, sizes)
     print("logistic loss gradient err = ", err)
     self.assertLess(err, 1e-7)
 
+  @test_util.run_deprecated_v1
   def testGradientAtZero(self):
-    with self.test_session():
+    with self.cached_session():
       logits = constant_op.constant([0.0, 0.0], dtype=dtypes.float64)
       targets = constant_op.constant([0.0, 1.0], dtype=dtypes.float64)
-      loss = nn_impl.sigmoid_cross_entropy_with_logits(logits, targets)
+      loss = nn_impl.sigmoid_cross_entropy_with_logits(
+          labels=targets, logits=logits)
       grads = gradients_impl.gradients(loss, logits)[0].eval()
     self.assertAllClose(grads, [0.5, -0.5])
 
   def testShapeError(self):
     with self.assertRaisesRegexp(ValueError, "must have the same shape"):
-      nn_impl.sigmoid_cross_entropy_with_logits([[2, 1]], [1, 2, 3])
+      nn_impl.sigmoid_cross_entropy_with_logits(labels=[1, 2, 3],
+                                                logits=[[2, 1]])
 
 
 class WeightedCrossEntropyTest(test.TestCase):
@@ -124,47 +133,50 @@ class WeightedCrossEntropyTest(test.TestCase):
     losses = np.array(self._WeightedCrossEntropy(x, y, q)).reshape(*sizes)
     return logits, targets, q, losses
 
+  @test_util.run_deprecated_v1
   def testConstructionNamed(self):
-    with self.test_session():
+    with self.cached_session():
       logits, targets, pos_weight, _ = self._Inputs()
       loss = nn_impl.weighted_cross_entropy_with_logits(
-          targets, logits, pos_weight, name="mybce")
+          targets=targets, logits=logits, pos_weight=pos_weight, name="mybce")
     self.assertEqual("mybce", loss.op.name)
 
   def testOutput(self):
     for use_gpu in [True, False]:
-      with self.test_session(use_gpu=use_gpu):
+      with self.cached_session(use_gpu=use_gpu):
         logits, targets, pos_weight, losses = self._Inputs(dtype=dtypes.float32)
-        loss = nn_impl.weighted_cross_entropy_with_logits(targets, logits,
-                                                          pos_weight)
+        loss = nn_impl.weighted_cross_entropy_with_logits(
+            targets=targets, logits=logits, pos_weight=pos_weight)
         np_loss = np.array(losses).astype(np.float32)
-        tf_loss = loss.eval()
+        tf_loss = self.evaluate(loss)
       self.assertAllClose(np_loss, tf_loss, atol=0.001)
 
   def testOutputMultiDim(self):
     for use_gpu in [True, False]:
-      with self.test_session(use_gpu=use_gpu):
+      with self.cached_session(use_gpu=use_gpu):
         logits, targets, pos_weight, losses = self._Inputs(
             dtype=dtypes.float32, sizes=[2, 2, 2])
-        loss = nn_impl.weighted_cross_entropy_with_logits(targets, logits,
-                                                          pos_weight)
+        loss = nn_impl.weighted_cross_entropy_with_logits(
+            targets=targets, logits=logits, pos_weight=pos_weight)
         np_loss = np.array(losses).astype(np.float32)
-        tf_loss = loss.eval()
+        tf_loss = self.evaluate(loss)
       self.assertAllClose(np_loss, tf_loss, atol=0.001)
 
+  @test_util.run_deprecated_v1
   def testGradient(self):
     sizes = [4, 2]
-    with self.test_session():
+    with self.cached_session():
       logits, targets, pos_weight, _ = self._Inputs(sizes=sizes)
-      loss = nn_impl.weighted_cross_entropy_with_logits(targets, logits,
-                                                        pos_weight)
+      loss = nn_impl.weighted_cross_entropy_with_logits(
+          targets=targets, logits=logits, pos_weight=pos_weight)
       err = gradient_checker.compute_gradient_error(logits, sizes, loss, sizes)
     print("logistic loss gradient err = ", err)
     self.assertLess(err, 1e-7)
 
   def testShapeError(self):
     with self.assertRaisesRegexp(ValueError, "must have the same shape"):
-      nn_impl.weighted_cross_entropy_with_logits([1, 2, 3], [[2, 1]], 2.0)
+      nn_impl.weighted_cross_entropy_with_logits(
+          targets=[1, 2, 3], logits=[[2, 1]], pos_weight=2.0)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors_impl
 from tensorflow.python.framework import sparse_tensor as sparse_tensor_lib
 from tensorflow.python.framework import test_util
+from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import sets
 from tensorflow.python.ops import sparse_ops
@@ -69,6 +70,7 @@ def _dense_to_sparse(dense, dtype):
 
 class SetOpsTest(test_util.TensorFlowTestCase):
 
+  @test_util.run_deprecated_v1
   def test_set_size_2d(self):
     for dtype in _DTYPES:
       self._test_set_size_2d(dtype)
@@ -82,6 +84,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(
         [0, 3], self._set_size(_dense_to_sparse([[], [1, 9, 2]], dtype)))
 
+  @test_util.run_deprecated_v1
   def test_set_size_duplicates_2d(self):
     for dtype in _DTYPES:
       self._test_set_size_duplicates_2d(dtype)
@@ -95,6 +98,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
                                 6, 7, 8, 8, 6, 7, 5, 3, 3, 0, 6, 6, 9, 0, 0, 0
                             ], [999, 1, -1000], [], [-1]], dtype)))
 
+  @test_util.run_deprecated_v1
   def test_set_size_3d(self):
     for dtype in _DTYPES:
       self._test_set_size_3d(dtype)
@@ -157,11 +161,12 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     for op in ops:
       self.assertEqual(None, op.get_shape().dims)
       self.assertEqual(dtypes.int32, op.dtype)
-    with self.test_session() as sess:
-      results = sess.run(ops)
+    with self.cached_session() as sess:
+      results = self.evaluate(ops)
     self.assertAllEqual(results[0], results[1])
     return results[0]
 
+  @test_util.run_deprecated_v1
   def test_set_intersection_multirow_2d(self):
     for dtype in _DTYPES:
       self._test_set_intersection_multirow_2d(dtype)
@@ -198,6 +203,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(expected_counts,
                         self._set_intersection_count(sp_a, sp_b))
 
+  @test_util.run_deprecated_v1
   def test_dense_set_intersection_multirow_2d(self):
     for dtype in _DTYPES:
       self._test_dense_set_intersection_multirow_2d(dtype)
@@ -222,6 +228,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
         dtype=dtype)
     self.assertAllEqual(expected_counts, self._set_intersection_count(a, b))
 
+  @test_util.run_deprecated_v1
   def test_set_intersection_duplicates_2d(self):
     for dtype in _DTYPES:
       self._test_set_intersection_duplicates_2d(dtype)
@@ -269,6 +276,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(expected_counts,
                         self._set_intersection_count(sp_a, sp_b))
 
+  @test_util.run_deprecated_v1
   def test_set_intersection_3d(self):
     for dtype in _DTYPES:
       self._test_set_intersection_3d(dtype=dtype)
@@ -453,19 +461,66 @@ class SetOpsTest(test_util.TensorFlowTestCase):
             dtype=dtype)
         self.assertAllEqual(expected_counts, self._set_intersection_count(a, b))
 
-  def _assert_shapes(self, input_tensor, result_sparse_tensor):
-    expected_rows = (None if
-                     isinstance(input_tensor, sparse_tensor_lib.SparseTensor)
-                     else input_tensor.get_shape().as_list()[0])
-    expected_rank = (None if
-                     isinstance(input_tensor, sparse_tensor_lib.SparseTensor)
-                     else input_tensor.get_shape().ndims)
-    self.assertAllEqual((expected_rows, expected_rank),
+  def _assert_static_shapes(self, input_tensor, result_sparse_tensor):
+    if isinstance(input_tensor, sparse_tensor_lib.SparseTensor):
+      sparse_shape_dims = input_tensor.dense_shape.get_shape().dims
+      if sparse_shape_dims is None:
+        expected_rank = None
+      else:
+        expected_rank = sparse_shape_dims[0].value
+    else:
+      expected_rank = input_tensor.get_shape().ndims
+    self.assertAllEqual((None, expected_rank),
                         result_sparse_tensor.indices.get_shape().as_list())
-    self.assertAllEqual((expected_rows,),
+    self.assertAllEqual((None,),
                         result_sparse_tensor.values.get_shape().as_list())
     self.assertAllEqual((expected_rank,),
                         result_sparse_tensor.dense_shape.get_shape().as_list())
+
+  def _run_equivalent_set_ops(self, ops):
+    """Assert all ops return the same shapes, and return 1st result."""
+    # Collect shapes and results for all ops, and assert static shapes match.
+    dynamic_indices_shape_ops = []
+    dynamic_values_shape_ops = []
+    static_indices_shape = None
+    static_values_shape = None
+    with self.cached_session() as sess:
+      for op in ops:
+        if static_indices_shape is None:
+          static_indices_shape = op.indices.get_shape()
+        else:
+          self.assertAllEqual(
+              static_indices_shape.as_list(), op.indices.get_shape().as_list())
+        if static_values_shape is None:
+          static_values_shape = op.values.get_shape()
+        else:
+          self.assertAllEqual(
+              static_values_shape.as_list(), op.values.get_shape().as_list())
+        dynamic_indices_shape_ops.append(array_ops.shape(op.indices))
+        dynamic_values_shape_ops.append(array_ops.shape(op.values))
+      results = sess.run(
+          list(ops) + dynamic_indices_shape_ops + dynamic_values_shape_ops)
+      op_count = len(ops)
+      op_results = results[0:op_count]
+      dynamic_indices_shapes = results[op_count:2 * op_count]
+      dynamic_values_shapes = results[2 * op_count:3 * op_count]
+
+    # Assert static and dynamic tensor shapes, and result shapes, are all
+    # consistent.
+    static_indices_shape.assert_is_compatible_with(dynamic_indices_shapes[0])
+    static_values_shape.assert_is_compatible_with(dynamic_values_shapes[0])
+    self.assertAllEqual(dynamic_indices_shapes[0], op_results[0].indices.shape)
+    self.assertAllEqual(dynamic_values_shapes[0], op_results[0].values.shape)
+
+    # Assert dynamic shapes and values are the same for all ops.
+    for i in range(1, len(ops)):
+      self.assertAllEqual(dynamic_indices_shapes[0], dynamic_indices_shapes[i])
+      self.assertAllEqual(dynamic_values_shapes[0], dynamic_values_shapes[i])
+      self.assertAllEqual(op_results[0].indices, op_results[i].indices)
+      self.assertAllEqual(op_results[0].values, op_results[i].values)
+      self.assertAllEqual(op_results[0].dense_shape, op_results[i].dense_shape)
+
+    return op_results[0]
 
   def _set_intersection(self, a, b):
     # Validate that we get the same results with or without `validate_indices`,
@@ -480,20 +535,15 @@ class SetOpsTest(test_util.TensorFlowTestCase):
         sets.set_intersection(
             b, a, validate_indices=False),)
     for op in ops:
-      self._assert_shapes(a, op)
-    with self.test_session() as sess:
-      results = sess.run(ops)
-    for i in range(1, 4):
-      self.assertAllEqual(results[0].indices, results[i].indices)
-      self.assertAllEqual(results[0].values, results[i].values)
-      self.assertAllEqual(results[0].dense_shape, results[i].dense_shape)
-    return results[0]
+      self._assert_static_shapes(a, op)
+    return self._run_equivalent_set_ops(ops)
 
   def _set_intersection_count(self, a, b):
     op = sets.set_size(sets.set_intersection(a, b))
-    with self.test_session() as sess:
-      return sess.run(op)
+    with self.cached_session() as sess:
+      return self.evaluate(op)
 
+  @test_util.run_deprecated_v1
   def test_set_difference_multirow_2d(self):
     for dtype in _DTYPES:
       self._test_set_difference_multirow_2d(dtype)
@@ -562,6 +612,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(expected_counts,
                         self._set_difference_count(sp_a, sp_b, False))
 
+  @test_util.run_deprecated_v1
   def test_dense_set_difference_multirow_2d(self):
     for dtype in _DTYPES:
       self._test_dense_set_difference_multirow_2d(dtype)
@@ -605,6 +656,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(expected_counts,
                         self._set_difference_count(a, b, False))
 
+  @test_util.run_deprecated_v1
   def test_sparse_set_difference_multirow_2d(self):
     for dtype in _DTYPES:
       self._test_sparse_set_difference_multirow_2d(dtype)
@@ -646,6 +698,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(expected_counts,
                         self._set_difference_count(sp_a, sp_b, False))
 
+  @test_util.run_deprecated_v1
   def test_set_difference_duplicates_2d(self):
     for dtype in _DTYPES:
       self._test_set_difference_duplicates_2d(dtype)
@@ -713,6 +766,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(expected_counts,
                         self._set_difference_count(a, sp_b, False))
 
+  @test_util.run_deprecated_v1
   def test_sparse_set_difference_3d(self):
     for dtype in _DTYPES:
       self._test_sparse_set_difference_3d(dtype)
@@ -924,20 +978,15 @@ class SetOpsTest(test_util.TensorFlowTestCase):
         sets.set_difference(
             b, a, aminusb=not aminusb, validate_indices=False),)
     for op in ops:
-      self._assert_shapes(a, op)
-    with self.test_session() as sess:
-      results = sess.run(ops)
-    for i in range(1, 4):
-      self.assertAllEqual(results[0].indices, results[i].indices)
-      self.assertAllEqual(results[0].values, results[i].values)
-      self.assertAllEqual(results[0].dense_shape, results[i].dense_shape)
-    return results[0]
+      self._assert_static_shapes(a, op)
+    return self._run_equivalent_set_ops(ops)
 
   def _set_difference_count(self, a, b, aminusb=True):
     op = sets.set_size(sets.set_difference(a, b, aminusb))
-    with self.test_session() as sess:
-      return sess.run(op)
+    with self.cached_session() as sess:
+      return self.evaluate(op)
 
+  @test_util.run_deprecated_v1
   def test_set_union_multirow_2d(self):
     for dtype in _DTYPES:
       self._test_set_union_multirow_2d(dtype)
@@ -965,6 +1014,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
         expected_indices, expected_values, expected_shape, union, dtype=dtype)
     self.assertAllEqual(expected_counts, self._set_union_count(sp_a, sp_b))
 
+  @test_util.run_deprecated_v1
   def test_dense_set_union_multirow_2d(self):
     for dtype in _DTYPES:
       self._test_dense_set_union_multirow_2d(dtype)
@@ -985,6 +1035,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
         expected_indices, expected_values, expected_shape, union, dtype=dtype)
     self.assertAllEqual(expected_counts, self._set_union_count(a, b))
 
+  @test_util.run_deprecated_v1
   def test_set_union_duplicates_2d(self):
     for dtype in _DTYPES:
       self._test_set_union_duplicates_2d(dtype)
@@ -1011,6 +1062,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
         expected_indices, expected_values, expected_shape, union, dtype=dtype)
     self.assertAllEqual([2], self._set_union_count(sp_a, sp_b))
 
+  @test_util.run_deprecated_v1
   def test_sparse_set_union_3d(self):
     for dtype in _DTYPES:
       self._test_sparse_set_union_3d(dtype)
@@ -1179,31 +1231,24 @@ class SetOpsTest(test_util.TensorFlowTestCase):
         sets.set_union(
             b, a, validate_indices=False),)
     for op in ops:
-      self._assert_shapes(a, op)
-    with self.test_session() as sess:
-      results = sess.run(ops)
-    for i in range(1, 4):
-      self.assertAllEqual(results[0].indices, results[i].indices)
-      self.assertAllEqual(results[0].values, results[i].values)
-      self.assertAllEqual(results[0].dense_shape, results[i].dense_shape)
-    return results[0]
+      self._assert_static_shapes(a, op)
+    return self._run_equivalent_set_ops(ops)
 
   def _set_union_count(self, a, b):
     op = sets.set_size(sets.set_union(a, b))
-    with self.test_session() as sess:
-      return sess.run(op)
+    with self.cached_session() as sess:
+      return self.evaluate(op)
 
   def _assert_set_operation(self, expected_indices, expected_values,
-                            expected_shape, sparse_tensor, dtype):
-    self.assertAllEqual(expected_indices, sparse_tensor.indices)
+                            expected_shape, sparse_tensor_value, dtype):
+    self.assertAllEqual(expected_indices, sparse_tensor_value.indices)
     self.assertAllEqual(len(expected_indices), len(expected_values))
-    self.assertAllEqual(len(expected_values), len(sparse_tensor.values))
+    self.assertAllEqual(len(expected_values), len(sparse_tensor_value.values))
     expected_set = set()
     actual_set = set()
     last_indices = None
-    for indices, expected_value, actual_value in zip(expected_indices,
-                                                     expected_values,
-                                                     sparse_tensor.values):
+    for indices, expected_value, actual_value in zip(
+        expected_indices, expected_values, sparse_tensor_value.values):
       if dtype == dtypes.string:
         actual_value = actual_value.decode("utf-8")
       if last_indices and (last_indices[:-1] != indices[:-1]):
@@ -1218,7 +1263,7 @@ class SetOpsTest(test_util.TensorFlowTestCase):
     self.assertEqual(expected_set, actual_set,
                      "Expected %s, got %s, at %s." % (expected_set, actual_set,
                                                       last_indices))
-    self.assertAllEqual(expected_shape, sparse_tensor.dense_shape)
+    self.assertAllEqual(expected_shape, sparse_tensor_value.dense_shape)
 
 
 if __name__ == "__main__":

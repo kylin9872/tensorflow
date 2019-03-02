@@ -31,14 +31,14 @@ class StatSummarizerTest(test.TestCase):
 
   def testStatSummarizer(self):
     with ops.Graph().as_default() as graph:
-      matrix1 = constant_op.constant([[3., 3.]])
-      matrix2 = constant_op.constant([[2.], [2.]])
-      product = math_ops.matmul(matrix1, matrix2)
+      matrix1 = constant_op.constant([[3., 3.]], name=r"m1")
+      matrix2 = constant_op.constant([[2.], [2.]], name=r"m2")
+      product = math_ops.matmul(matrix1, matrix2, name=r"product")
 
       graph_def = graph.as_graph_def()
       ss = pywrap_tensorflow.NewStatSummarizer(graph_def.SerializeToString())
 
-      with self.test_session() as sess:
+      with self.cached_session() as sess:
         sess.run(variables.global_variables_initializer())
 
         for _ in range(20):
@@ -59,8 +59,12 @@ class StatSummarizerTest(test.TestCase):
       # Test that a header line got printed.
       self.assertRegexpMatches(output_string, r"====== .* ======")
 
-      # Test that the MatMul node we added was analyzed.
-      self.assertRegexpMatches(output_string, r"MatMul")
+      # Test that the nodes we added were analyzed.
+      # The line for the op should contain both the op type (MatMul)
+      # and the name of the node (product)
+      self.assertRegexpMatches(output_string, r"MatMul.*product")
+      self.assertRegexpMatches(output_string, r"Const.*m1")
+      self.assertRegexpMatches(output_string, r"Const.*m2")
 
       # Test that a CDF summed to 100%
       self.assertRegexpMatches(output_string, r"100\.")
