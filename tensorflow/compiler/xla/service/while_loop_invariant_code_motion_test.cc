@@ -556,7 +556,7 @@ TEST_F(WhileLoopInvariantCodeMotionTest, DoNotHoistOutOfSingleIteration) {
       p_cond = (f32[2], f32[2], f32[2], s32[]) parameter(0)
       gte = s32[] get-tuple-element(p_cond), index=3
       const = s32[] constant(42)
-      ROOT result = pred[] equal-to(gte, const)
+      ROOT result = pred[] compare(gte, const), direction=EQ
     }
 
     ENTRY entry {
@@ -621,8 +621,9 @@ TEST_F(WhileLoopInvariantCodeMotionTest, NoHoistInflating) {
 
   TF_ASSERT_OK_AND_ASSIGN(
       bool simplified_loop,
-      WhileLoopInvariantCodeMotion(/*hoist_constants=*/true,
-                                   /*hoist_size_inflating_ops=*/false)
+      WhileLoopInvariantCodeMotion(/*hoist_constants=*/false,
+                                   /*hoist_non_constants=*/true,
+                                   /*hoist_size_inflation_ratio=*/1.0)
           .Run(m.get()));
   EXPECT_FALSE(simplified_loop);
 }

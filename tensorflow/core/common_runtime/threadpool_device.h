@@ -38,10 +38,20 @@ class ThreadPoolDevice : public LocalDevice {
   Status MakeTensorFromProto(const TensorProto& tensor_proto,
                              const AllocatorAttributes alloc_attrs,
                              Tensor* tensor) override;
+  void CopyTensorInSameDevice(const Tensor* input_tensor, Tensor* output_tensor,
+                              const DeviceContext* device_context,
+                              StatusCallback done) override;
 
   Status Sync() override { return Status::OK(); }
 
+  void Compute(OpKernel* op_kernel, OpKernelContext* context) override;
+  void ComputeAsync(AsyncOpKernel* op_kernel, OpKernelContext* context,
+                    AsyncOpKernel::DoneCallback done) override;
+
  private:
+  void LogInputs(OpKernel* op_kernel, OpKernelContext* context);
+  void LogOutputs(OpKernel* op_kernel, OpKernelContext* context);
+
   Allocator* allocator_;  // Not owned
   std::unique_ptr<ScopedAllocatorMgr> scoped_allocator_mgr_;
 };

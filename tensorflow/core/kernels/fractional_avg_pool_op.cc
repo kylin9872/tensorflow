@@ -80,11 +80,15 @@ class FractionalAvgPoolOp : public OpKernel {
     std::vector<int> output_size(tensor_in_and_out_dims);
     for (int i = 0; i < tensor_in_and_out_dims; ++i) {
       input_size[i] = tensor_in.dim_size(i);
+      OP_REQUIRES(
+          context, pooling_ratio_[i] <= input_size[i],
+          errors::InvalidArgument(
+              "Pooling ratio cannot be bigger than input tensor dim size."));
     }
     // Output size.
     for (int i = 0; i < tensor_in_and_out_dims; ++i) {
       output_size[i] =
-          static_cast<int>(floor(input_size[i] / pooling_ratio_[i]));
+          static_cast<int>(std::floor(input_size[i] / pooling_ratio_[i]));
       DCHECK_GT(output_size[i], 0);
     }
 
@@ -245,6 +249,19 @@ class FractionalAvgPoolGradOp : public OpKernel {
     const int64 out_rows = out_backprop.dim_size(1);
     const int64 out_cols = out_backprop.dim_size(2);
     const int64 out_depth = out_backprop.dim_size(3);
+
+    OP_REQUIRES(context, row_seq_tensor.NumElements() > out_rows,
+                errors::InvalidArgument("Given out_backprop shape ",
+                                        out_backprop.shape().DebugString(),
+                                        ", row_seq_tensor must have at least ",
+                                        out_rows + 1, " elements, but got ",
+                                        row_seq_tensor.NumElements()));
+    OP_REQUIRES(context, col_seq_tensor.NumElements() > out_cols,
+                errors::InvalidArgument("Given out_backprop shape ",
+                                        out_backprop.shape().DebugString(),
+                                        ", col_seq_tensor must have at least ",
+                                        out_cols + 1, " elements, but got ",
+                                        col_seq_tensor.NumElements()));
 
     auto row_seq_tensor_flat = row_seq_tensor.flat<int64>();
     auto col_seq_tensor_flat = col_seq_tensor.flat<int64>();

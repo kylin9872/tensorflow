@@ -18,47 +18,106 @@ limitations under the License.
 namespace xla {
 namespace gpu {
 
-std::ostream& operator<<(std::ostream& os, Thunk::Kind kind) {
+StatusOr<GlobalDeviceId> Thunk::ExecuteParams::GetGlobalDeviceId() const {
+  int64 local_device_ordinal = stream->parent()->device_ordinal();
+  if (gpu_global_device_ids) {
+    TF_RET_CHECK(0 <= local_device_ordinal &&
+                 local_device_ordinal < gpu_global_device_ids->size());
+    return (*gpu_global_device_ids)[local_device_ordinal];
+  } else {
+    // No local -> global mapping was provided; assume the identity mapping.
+    return GlobalDeviceId(local_device_ordinal);
+  }
+}
+
+/*static*/ absl::string_view Thunk::KindToString(Thunk::Kind kind) {
   switch (kind) {
     case Thunk::kCholesky:
-      return os << "kCholesky";
+      return "kCholesky";
+    case Thunk::kCollectivePermute:
+      return "kCollectivePermute";
     case Thunk::kConditional:
-      return os << "kConditional";
+      return "kConditional";
     case Thunk::kConvolution:
-      return os << "kConvolution";
+      return "kConvolution";
     case Thunk::kCopy:
-      return os << "kCopy";
+      return "kCopy";
     case Thunk::kCudnnBatchNormBackward:
-      return os << "kCudnnBatchNormBackward";
+      return "kCudnnBatchNormBackward";
     case Thunk::kCudnnBatchNormForwardInference:
-      return os << "kCudnnBatchNormForwardInference";
+      return "kCudnnBatchNormForwardInference";
     case Thunk::kCudnnBatchNormForwardTraining:
-      return os << "kCudnnBatchNormForwardTraining";
+      return "kCudnnBatchNormForwardTraining";
+    case Thunk::kCustomCall:
+      return "kCustomCall";
+    case Thunk::kNcclAllGather:
+      return "kNcclAllGather";
     case Thunk::kNcclAllReduce:
-      return os << "kNcclAllReduce";
+      return "kNcclAllReduce";
+    case Thunk::kNcclAllReduceScatter:
+      return "kNcclAllReduceScatter";
+    case Thunk::kNcclAllToAll:
+      return "kNcclAllToAll";
     case Thunk::kFft:
-      return os << "kFft";
+      return "kFft";
     case Thunk::kGemm:
-      return os << "kGemm";
+      return "kGemm";
     case Thunk::kInfeed:
-      return os << "kInfeed";
+      return "kInfeed";
     case Thunk::kKernel:
-      return os << "kKernel";
+      return "kKernel";
     case Thunk::kMemset32BitValue:
-      return os << "kMemset32BitValue";
+      return "kMemset32BitValue";
     case Thunk::kMemzero:
-      return os << "kMemzero";
+      return "kMemzero";
     case Thunk::kOutfeed:
-      return os << "kOutfeed";
+      return "kOutfeed";
+    case Thunk::kReplicaId:
+      return "kReplicaId";
+    case Thunk::kPartitionId:
+      return "kPartitionId";
     case Thunk::kSequential:
-      return os << "kSequential";
+      return "kSequential";
     case Thunk::kTriangularSolve:
-      return os << "kTriangularSolve";
+      return "kTriangularSolve";
     case Thunk::kTuple:
-      return os << "kTuple";
+      return "kTuple";
     case Thunk::kWhile:
-      return os << "kWhile";
+      return "kWhile";
   }
+}
+
+std::ostream& operator<<(std::ostream& os, Thunk::Kind kind) {
+  return os << Thunk::KindToString(kind);
+}
+
+std::string ThunkSequence::ToString(
+    int indent,
+    std::function<std::string(const Thunk*)> get_thunk_annotation) const {
+  const std::string indent_str(" ", indent * 2);
+  if (empty()) return indent_str + "No thunks.";
+
+  auto thunk_with_longest_kind = absl::c_max_element(
+      *this,
+      [](const std::unique_ptr<Thunk>& a, const std::unique_ptr<Thunk>& b) {
+        return Thunk::KindToString(a->kind()).length() <
+               Thunk::KindToString(b->kind()).length();
+      });
+  int64 max_thunk_kind_len =
+      Thunk::KindToString(thunk_with_longest_kind->get()->kind()).length();
+  std::string result;
+  for (const std::unique_ptr<Thunk>& thunk : *this) {
+    // Write out the thunk kind, padded out to max_thunk_kind_len.
+    absl::string_view kind_str = Thunk::KindToString(thunk->kind());
+    absl::StrAppend(&result, indent_str, kind_str,
+                    string(max_thunk_kind_len - kind_str.length(), ' '), "\t");
+    if (get_thunk_annotation) {
+      absl::StrAppend(&result, get_thunk_annotation(thunk.get()));
+    }
+    absl::StrAppend(&result, thunk->ToStringExtra(indent));
+    absl::StrAppend(&result, "\n");
+  }
+  return result;
 }
 
 }  // namespace gpu

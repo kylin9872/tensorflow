@@ -18,8 +18,8 @@ limitations under the License.
 #include <cstddef>
 #include <vector>
 
+#include "tensorflow/core/common_runtime/device/device_id_utils.h"
 #include "tensorflow/core/common_runtime/gpu/gpu_id.h"
-#include "tensorflow/core/common_runtime/gpu/gpu_id_utils.h"
 #include "tensorflow/core/common_runtime/gpu/gpu_init.h"
 #include "tensorflow/core/platform/stream_executor.h"
 
@@ -76,10 +76,11 @@ void InitMask(se::StreamExecutor* exec, void* ptr, int64* mask) {
 // GPUDebugAllocator
 // -----------------------------------------------------------------------------
 GPUDebugAllocator::GPUDebugAllocator(Allocator* allocator,
-                                     PlatformGpuId platform_gpu_id)
+                                     PlatformDeviceId platform_device_id)
     : base_allocator_(allocator) {
-  stream_exec_ =
-      GpuIdUtil::ExecutorForPlatformGpuId(platform_gpu_id).ValueOrDie();
+  stream_exec_ = DeviceIdUtil::ExecutorForPlatformDeviceId(GPUMachineManager(),
+                                                           platform_device_id)
+                     .ValueOrDie();
 }
 
 GPUDebugAllocator::~GPUDebugAllocator() { delete base_allocator_; }
@@ -114,20 +115,20 @@ void GPUDebugAllocator::DeallocateRaw(void* ptr) {
   base_allocator_->DeallocateRaw(ptr);
 }
 
-bool GPUDebugAllocator::TracksAllocationSizes() { return true; }
+bool GPUDebugAllocator::TracksAllocationSizes() const { return true; }
 
-size_t GPUDebugAllocator::RequestedSize(const void* ptr) {
+size_t GPUDebugAllocator::RequestedSize(const void* ptr) const {
   auto req_size = base_allocator_->RequestedSize(static_cast<const char*>(ptr) -
                                                  MASK_BYTES);
   return req_size - 2 * MASK_BYTES;
 }
 
-size_t GPUDebugAllocator::AllocatedSize(const void* ptr) {
+size_t GPUDebugAllocator::AllocatedSize(const void* ptr) const {
   return base_allocator_->AllocatedSize(static_cast<const char*>(ptr) -
                                         MASK_BYTES);
 }
 
-int64 GPUDebugAllocator::AllocationId(const void* ptr) {
+int64 GPUDebugAllocator::AllocationId(const void* ptr) const {
   return base_allocator_->AllocationId(static_cast<const char*>(ptr) -
                                        MASK_BYTES);
 }
@@ -136,7 +137,7 @@ absl::optional<AllocatorStats> GPUDebugAllocator::GetStats() {
   return base_allocator_->GetStats();
 }
 
-void GPUDebugAllocator::ClearStats() { base_allocator_->ClearStats(); }
+bool GPUDebugAllocator::ClearStats() { return base_allocator_->ClearStats(); }
 
 bool GPUDebugAllocator::CheckHeader(void* ptr) {
   return CheckMask(stream_exec_, static_cast<char*>(ptr) - MASK_BYTES,
@@ -154,10 +155,11 @@ bool GPUDebugAllocator::CheckFooter(void* ptr) {
 // GPUNanResetAllocator
 // -----------------------------------------------------------------------------
 GPUNanResetAllocator::GPUNanResetAllocator(Allocator* allocator,
-                                           PlatformGpuId platform_gpu_id)
+                                           PlatformDeviceId platform_device_id)
     : base_allocator_(allocator) {
-  stream_exec_ =
-      GpuIdUtil::ExecutorForPlatformGpuId(platform_gpu_id).ValueOrDie();
+  stream_exec_ = DeviceIdUtil::ExecutorForPlatformDeviceId(GPUMachineManager(),
+                                                           platform_device_id)
+                     .ValueOrDie();
 }
 
 GPUNanResetAllocator::~GPUNanResetAllocator() { delete base_allocator_; }
@@ -200,11 +202,11 @@ void GPUNanResetAllocator::DeallocateRaw(void* ptr) {
   base_allocator_->DeallocateRaw(ptr);
 }
 
-size_t GPUNanResetAllocator::RequestedSize(const void* ptr) {
+size_t GPUNanResetAllocator::RequestedSize(const void* ptr) const {
   return base_allocator_->RequestedSize(ptr);
 }
 
-size_t GPUNanResetAllocator::AllocatedSize(const void* ptr) {
+size_t GPUNanResetAllocator::AllocatedSize(const void* ptr) const {
   return base_allocator_->AllocatedSize(ptr);
 }
 
@@ -212,6 +214,8 @@ absl::optional<AllocatorStats> GPUNanResetAllocator::GetStats() {
   return base_allocator_->GetStats();
 }
 
-void GPUNanResetAllocator::ClearStats() { base_allocator_->ClearStats(); }
+bool GPUNanResetAllocator::ClearStats() {
+  return base_allocator_->ClearStats();
+}
 
 }  // namespace tensorflow

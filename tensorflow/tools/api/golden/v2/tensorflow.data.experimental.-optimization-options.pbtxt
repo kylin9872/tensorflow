@@ -8,11 +8,23 @@ tf_class {
     mtype: "<type \'property\'>"
   }
   member {
-    name: "filter_fusion"
+    name: "autotune"
     mtype: "<type \'property\'>"
   }
   member {
-    name: "hoist_random_uniform"
+    name: "autotune_buffers"
+    mtype: "<type \'property\'>"
+  }
+  member {
+    name: "autotune_cpu_budget"
+    mtype: "<type \'property\'>"
+  }
+  member {
+    name: "autotune_ram_budget"
+    mtype: "<type \'property\'>"
+  }
+  member {
+    name: "filter_fusion"
     mtype: "<type \'property\'>"
   }
   member {
@@ -32,11 +44,11 @@ tf_class {
     mtype: "<type \'property\'>"
   }
   member {
-    name: "map_vectorization"
+    name: "noop_elimination"
     mtype: "<type \'property\'>"
   }
   member {
-    name: "noop_elimination"
+    name: "parallel_batch"
     mtype: "<type \'property\'>"
   }
   member {

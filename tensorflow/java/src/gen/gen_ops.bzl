@@ -1,5 +1,3 @@
-# -*- Python -*-
-
 load(
     "//tensorflow:tensorflow.bzl",
     "tf_binary_additional_srcs",
@@ -49,16 +47,19 @@ def tf_java_op_gen_srcjar(
 
     # Generate a source archive containing generated code for these ops.
     gen_srcjar = out_dir + name + ".srcjar"
-    gen_cmds += ["$(location @local_jdk//:jar) cMf $(location :" + gen_srcjar + ") -C $(@D) src"]
+    gen_cmds += ["$(JAVABASE)/bin/jar cMf $(location :" + gen_srcjar + ") -C $(@D) src"]
 
     native.genrule(
         name = name,
         srcs = srcs,
         outs = [gen_srcjar],
         tools = [
-            "@local_jdk//:jar",
-            "@local_jdk//:jdk",
+            # copybara:uncomment_begin(using system-provided in OSS build)
+            # "//third_party/java/jdk/jar:jar",
+            # "//third_party/java/jdk:jdk",
+            # copybara:uncomment_end
             gen_tool,
         ] + tf_binary_additional_srcs(),
+        toolchains = ["@bazel_tools//tools/jdk:current_host_java_runtime"],
         cmd = " && ".join(gen_cmds),
     )

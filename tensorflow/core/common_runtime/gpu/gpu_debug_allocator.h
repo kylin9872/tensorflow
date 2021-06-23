@@ -34,17 +34,17 @@ namespace tensorflow {
 class GPUDebugAllocator : public Allocator {
  public:
   explicit GPUDebugAllocator(Allocator* allocator,
-                             PlatformGpuId platform_gpu_id);
+                             PlatformDeviceId platform_device_id);
   ~GPUDebugAllocator() override;
   string Name() override { return "gpu_debug"; }
   void* AllocateRaw(size_t alignment, size_t num_bytes) override;
   void DeallocateRaw(void* ptr) override;
-  bool TracksAllocationSizes() override;
-  size_t RequestedSize(const void* ptr) override;
-  size_t AllocatedSize(const void* ptr) override;
-  int64 AllocationId(const void* ptr) override;
+  bool TracksAllocationSizes() const override;
+  size_t RequestedSize(const void* ptr) const override;
+  size_t AllocatedSize(const void* ptr) const override;
+  int64 AllocationId(const void* ptr) const override;
   absl::optional<AllocatorStats> GetStats() override;
-  void ClearStats() override;
+  bool ClearStats() override;
 
   // For testing.
   bool CheckHeader(void* ptr);
@@ -64,15 +64,15 @@ class GPUDebugAllocator : public Allocator {
 class GPUNanResetAllocator : public Allocator {
  public:
   explicit GPUNanResetAllocator(Allocator* allocator,
-                                PlatformGpuId platform_gpu_id);
+                                PlatformDeviceId platform_device_id);
   ~GPUNanResetAllocator() override;
   string Name() override { return "gpu_nan_reset"; }
   void* AllocateRaw(size_t alignment, size_t num_bytes) override;
   void DeallocateRaw(void* ptr) override;
-  size_t RequestedSize(const void* ptr) override;
-  size_t AllocatedSize(const void* ptr) override;
+  size_t RequestedSize(const void* ptr) const override;
+  size_t AllocatedSize(const void* ptr) const override;
   absl::optional<AllocatorStats> GetStats() override;
-  void ClearStats() override;
+  bool ClearStats() override;
 
  private:
   Allocator* base_allocator_ = nullptr;  // owned

@@ -14,14 +14,14 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/core/distributed_runtime/message_wrappers.h"
+
 #include "tensorflow/core/framework/cost_graph.pb.h"
 #include "tensorflow/core/framework/step_stats.pb.h"
+#include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/protobuf/config.pb.h"
 #include "tensorflow/core/protobuf/named_tensor.pb.h"
 
 namespace tensorflow {
-
-namespace {
 
 bool ParseTensorProtoToTensor(const TensorProto& tensor_proto,
                               Tensor* out_tensor) {
@@ -34,8 +34,6 @@ bool ParseTensorProtoToTensor(const TensorProto& tensor_proto,
   }
   return false;
 }
-
-}  // namespace
 
 const string& InMemoryRunStepRequest::session_handle() const {
   return session_handle_;
@@ -344,9 +342,6 @@ Status InMemoryRunGraphRequest::AddSendFromRunStepRequest(
   return Status::OK();
 }
 
-// TODO(b/74355905): Add a specialized implementation that avoids
-// copying the tensor when at least two of the {client, master,
-// worker} are in the same process.
 Status InMemoryRunGraphRequest::AddSendFromRunCallableRequest(
     const RunCallableRequest& run_callable_request, size_t i,
     const string& send_key) {
@@ -392,6 +387,12 @@ void InMemoryRunGraphRequest::set_store_errors_in_response_body(
   store_errors_in_response_body_ = store_errors;
 }
 
+int64 InMemoryRunGraphRequest::request_id() const { return request_id_; }
+
+void InMemoryRunGraphRequest::set_request_id(int64 request_id) {
+  request_id_ = request_id;
+}
+
 const RunGraphRequest& InMemoryRunGraphRequest::ToProto() const {
   if (!proto_version_) {
     proto_version_.reset(new RunGraphRequest);
@@ -412,6 +413,9 @@ const RunGraphRequest& InMemoryRunGraphRequest::ToProto() const {
     proto_version_->set_is_partial(is_partial());
     proto_version_->set_is_last_partial_run(is_last_partial_run());
   }
+  proto_version_->set_store_errors_in_response_body(
+      store_errors_in_response_body_);
+  proto_version_->set_request_id(request_id_);
   return *proto_version_;
 }
 
@@ -482,9 +486,6 @@ Status MutableProtoRunGraphRequest::AddSendFromRunStepRequest(
   return Status::OK();
 }
 
-// TODO(b/74355905): Add a specialized implementation that avoids
-// copying the tensor when at least two of the {client, master,
-// worker} are in the same process.
 Status MutableProtoRunGraphRequest::AddSendFromRunCallableRequest(
     const RunCallableRequest& run_callable_request, size_t i,
     const string& send_key) {
@@ -530,6 +531,14 @@ bool MutableProtoRunGraphRequest::store_errors_in_response_body() const {
 void MutableProtoRunGraphRequest::set_store_errors_in_response_body(
     bool store_errors) {
   request_.set_store_errors_in_response_body(store_errors);
+}
+
+int64 MutableProtoRunGraphRequest::request_id() const {
+  return request_.request_id();
+}
+
+void MutableProtoRunGraphRequest::set_request_id(int64 request_id) {
+  request_.set_request_id(request_id);
 }
 
 const RunGraphRequest& MutableProtoRunGraphRequest::ToProto() const {
@@ -587,6 +596,10 @@ bool ProtoRunGraphRequest::is_last_partial_run() const {
 
 bool ProtoRunGraphRequest::store_errors_in_response_body() const {
   return request_->store_errors_in_response_body();
+}
+
+int64 ProtoRunGraphRequest::request_id() const {
+  return request_->request_id();
 }
 
 const RunGraphRequest& ProtoRunGraphRequest::ToProto() const {

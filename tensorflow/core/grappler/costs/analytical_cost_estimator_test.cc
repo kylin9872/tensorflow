@@ -94,21 +94,21 @@ class AnalyticalCostEstimatorTest : public ::testing::Test {
 TEST_F(AnalyticalCostEstimatorTest, SimpleTest) {
   GrapplerItem item = CreateMiniGraph();
 
-  AnalyticalCostEstimator estimator(cluster_.get(), true);
+  AnalyticalCostEstimator estimator(cluster_.get(), /*use_static_shapes=*/true,
+                                    /*use_aggressive_shape_inference=*/true);
   TF_ASSERT_OK(estimator.Initialize(item));
 
   RunMetadata run_metadata;
   Costs summary;
   TF_ASSERT_OK(estimator.PredictCosts(item.graph, &run_metadata, &summary));
 
-  EXPECT_EQ(Costs::NanoSeconds(9157), summary.execution_time);
+  EXPECT_EQ(Costs::NanoSeconds(9158), summary.execution_time);
   // Note there are totally 17 nodes (RandomUniform creates 2 nodes), but
   // grappler will not process "label", therefore we have 15 here instead
   EXPECT_EQ(15, summary.num_ops_total);
 
   // Make this estimate accurate:
   // TODO(http://b/70031255): Accurate estimator for RandomUniform op needed
-  // TODO(http://b/70031363): Accurate estimator for Softmax needed
   //
   // Change to EXPECT_FALSE when the above TODOs are done:
   EXPECT_TRUE(summary.inaccurate);

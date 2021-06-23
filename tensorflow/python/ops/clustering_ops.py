@@ -216,11 +216,11 @@ class KMeans(object):
     output = []
     if not inputs_normalized:
       with ops.colocate_with(clusters, ignore_existing=True):
-        clusters = nn_impl.l2_normalize(clusters, dim=1)
+        clusters = nn_impl.l2_normalize(clusters, axis=1)
     for inp in inputs:
       with ops.colocate_with(inp, ignore_existing=True):
         if not inputs_normalized:
-          inp = nn_impl.l2_normalize(inp, dim=1)
+          inp = nn_impl.l2_normalize(inp, axis=1)
         output.append(1 - math_ops.matmul(inp, clusters, transpose_b=True))
     return output
 
@@ -251,7 +251,7 @@ class KMeans(object):
       # TODO(ands): Support COSINE distance in nearest_neighbors and remove
       # this.
       with ops.colocate_with(clusters, ignore_existing=True):
-        clusters = nn_impl.l2_normalize(clusters, dim=1)
+        clusters = nn_impl.l2_normalize(clusters, axis=1)
     for inp, score in zip(inputs, scores):
       with ops.colocate_with(inp, ignore_existing=True):
         (indices, distances) = gen_clustering_ops.nearest_neighbors(
@@ -286,36 +286,31 @@ class KMeans(object):
       - update_in_steps: numbers of steps left before we sync
             cluster_centers_updated back to cluster_centers.
     """
-    init_value = array_ops.constant([], dtype=dtypes.float32)
+    init_value = array_ops.placeholder_with_default([], shape=None)
     cluster_centers = variable_scope.variable(
-        init_value, name=CLUSTERS_VAR_NAME, validate_shape=False,
-        use_resource=False)
+        init_value, name=CLUSTERS_VAR_NAME, validate_shape=False)
     cluster_centers_initialized = variable_scope.variable(
-        False, dtype=dtypes.bool, name='initialized', use_resource=False)
+        False, dtype=dtypes.bool, name='initialized')
 
     if self._use_mini_batch and self._mini_batch_steps_per_iteration > 1:
       # Copy of cluster centers actively updated each step according to
       # mini-batch update rule.
       cluster_centers_updated = variable_scope.variable(
-          init_value, name='clusters_updated', validate_shape=False,
-          use_resource=False)
+          init_value, name='clusters_updated', validate_shape=False)
       # How many steps till we copy the updated clusters to cluster_centers.
       update_in_steps = variable_scope.variable(
           self._mini_batch_steps_per_iteration,
           dtype=dtypes.int64,
-          name='update_in_steps',
-          use_resource=False)
+          name='update_in_steps')
       # Count of points assigned to cluster_centers_updated.
       cluster_counts = variable_scope.variable(
-          array_ops.zeros([num_clusters], dtype=dtypes.int64),
-          use_resource=False)
+          array_ops.zeros([num_clusters], dtype=dtypes.int64))
     else:
       cluster_centers_updated = cluster_centers
       update_in_steps = None
       cluster_counts = (
-          variable_scope.variable(  # pylint:disable=g-long-ternary
-              array_ops.ones([num_clusters], dtype=dtypes.int64),
-              use_resource=False)
+          variable_scope.variable(
+              array_ops.ones([num_clusters], dtype=dtypes.int64))
           if self._use_mini_batch else None)
     return (cluster_centers, cluster_centers_initialized, cluster_counts,
             cluster_centers_updated, update_in_steps)
@@ -618,7 +613,7 @@ class _InitializeClustersOpFactory(object):
     if self._distance_metric == COSINE_DISTANCE:
       inp = nn_impl.l2_normalize(inp, dim=1)
     return gen_clustering_ops.kmeans_plus_plus_initialization(
-        inp, math_ops.to_int64(self._num_remaining), self._seed,
+        inp, math_ops.cast(self._num_remaining, dtypes.int64), self._seed,
         self._kmeans_plus_plus_num_retries)
 
   def _kmc2_multiple_centers(self):

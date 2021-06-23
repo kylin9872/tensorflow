@@ -27,12 +27,12 @@ limitations under the License.
 #include "tensorflow/compiler/jit/flags.h"
 #include "tensorflow/compiler/jit/xla_cluster_util.h"
 #include "tensorflow/compiler/tf2xla/cc/ops/xla_ops.h"
-#include "tensorflow/compiler/tf2xla/dump_graph.h"
 #include "tensorflow/compiler/xla/status_macros.h"
 #include "tensorflow/core/common_runtime/shape_refiner.h"
 #include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/public/session_options.h"
 #include "tensorflow/core/util/device_name_utils.h"
+#include "tensorflow/core/util/dump_graph.h"
 
 namespace tensorflow {
 namespace {
@@ -48,7 +48,7 @@ namespace {
 //
 //  - A T to indicate a successful operation.
 template <class T>
-using StatusOrOptional = xla::StatusOr<absl::optional<T>>;
+using StatusOrOptional = StatusOr<absl::optional<T>>;
 
 StatusOrOptional<Tensor> TryToGetTensorFromConstOp(Node* n) {
   if (n->type_string() != "Const") {
@@ -194,7 +194,7 @@ Status ComputeSliceSize(const Scope& host_scope,
   ConstantCache constant_pool(host_scope, control_deps);
 
   std::vector<Output> slice_size;
-  for (int i = 0; i < slice_inputs.size_as_vector.size(); i++) {
+  for (int i = 0, end = slice_inputs.size_as_vector.size(); i < end; i++) {
     if (slice_inputs.size_as_vector[i] >= 0) {
       slice_size.push_back(
           constant_pool.Get1DHostConstant(slice_inputs.size_as_vector[i]));
@@ -315,7 +315,7 @@ Status RewriteSlice(Graph* g, Node* slice, const SliceInputs& slice_inputs,
 
 // Return true if `n` is a slice we should rewrite to have a static shape
 // (i.e. have the output shape only depend on the "size" input).
-xla::StatusOr<bool> ShouldRewriteSlice(Node* n) {
+StatusOr<bool> ShouldRewriteSlice(Node* n) {
   if (n->type_string() != "Slice") {
     return false;
   }
@@ -375,15 +375,15 @@ Status IncreaseDynamismForAutoJitPass::Run(
     const GraphOptimizationPassOptions& options) {
   MarkForCompilationPassFlags* flags = GetMarkForCompilationPassFlags();
   if (flags->tf_xla_clustering_debug) {
-    dump_graph::DumpGraphToFile("before_increase_dynamism_for_auto_jit_pass",
-                                **options.graph, options.flib_def);
+    DumpGraphToFile("before_increase_dynamism_for_auto_jit_pass",
+                    **options.graph, options.flib_def);
   }
 
   bool changed;
   TF_RETURN_IF_ERROR(FindAndRewriteSlices(options.graph->get(), &changed));
   if (changed && flags->tf_xla_clustering_debug) {
-    dump_graph::DumpGraphToFile("increase_dynamism_for_auto_jit_pass",
-                                **options.graph, options.flib_def);
+    DumpGraphToFile("increase_dynamism_for_auto_jit_pass", **options.graph,
+                    options.flib_def);
   }
 
   return Status::OK();
